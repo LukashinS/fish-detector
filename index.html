@@ -3,53 +3,52 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Fish Detector Mobile</title>
+    <title>Fish Detector 16:9 Fixed Proportions</title>
     <style>
-        body { margin: 0; background: #111; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+        body { 
+            margin: 0; background: #000; color: #fff; font-family: sans-serif; 
+            display: flex; flex-direction: column; align-items: center; justify-content: center; 
+            height: 100vh; width: 100vw; overflow: hidden; 
+        }
         
         #container { 
             position: relative; 
-            width: 100%; 
-            max-width: 640px; 
-            aspect-ratio: 4/3; 
+            width: clamp(320px, 100vw, calc(100vh * (16/9)));
+            aspect-ratio: 16 / 9;
             background: #000;
             overflow: hidden; 
-            touch-action: none; /* Предотвращает скролл при выборе цвета */
+            touch-action: none;
         }
 
-        #canvas { 
-            width: 100%; 
-            height: 100%; 
-            display: block;
-        }
+        #canvas { width: 100%; height: 100%; display: block; transition: transform 0.1s ease-out; }
 
         #counter { 
-            position: absolute; top: 10px; left: 10px; 
-            background: rgba(0,0,0,0.7); color: #00e5ff; 
-            padding: 8px 15px; border-radius: 5px; font-weight: bold; z-index: 5; 
+            position: absolute; top: 20px; left: 20px; 
+            background: rgba(0,0,0,0.85); color: #00e5ff; 
+            padding: 15px 25px; border-radius: 10px; font-weight: bold; z-index: 20; 
+            font-size: clamp(18px, 4vw, 40px); border: 3px solid #00e5ff;
+            pointer-events: none; white-space: nowrap;
         }
 
         .controls { 
-            width: 95%; max-width: 640px; 
-            display: grid; grid-template-columns: 1fr 1fr; gap: 10px; 
-            padding: 15px; box-sizing: border-box; background: #222;
+            width: 100%; max-width: 1200px;
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); 
+            gap: 10px; padding: 15px; box-sizing: border-box; background: #222;
+            font-size: 11px;
         }
 
-        .control-group { display: flex; flex-direction: column; gap: 5px; }
-        label { font-size: 10px; color: #888; text-transform: uppercase; }
-        input[type=range] { width: 100%; }
-        
-        #color-preview { width: 30px; height: 30px; border: 2px solid #fff; border-radius: 4px; }
+        .control-group { display: flex; flex-direction: column; gap: 4px; }
+        label { color: #888; text-transform: uppercase; font-size: 10px; letter-spacing: 1px; }
+        input[type=range] { width: 100%; accent-color: #00e5ff; cursor: pointer; }
+        #color-preview { width: 35px; height: 35px; border: 2px solid #fff; border-radius: 6px; }
         .picker-row { display: flex; align-items: center; gap: 10px; }
-        
-        #status { font-size: 12px; color: #555; margin-top: 5px; }
     </style>
 </head>
 <body>
 
     <div id="container">
-        <div id="counter">FISH: 0</div>
-        <canvas id="canvas" width="640" height="480"></canvas>
+        <div id="counter">РЫБ В БАССЕЙНЕ: 0</div>
+        <canvas id="canvas" width="1280" height="720"></canvas>
     </div>
     <video id="video" autoplay playsinline muted style="display:none;"></video>
 
@@ -61,34 +60,29 @@
                 <div id="color-preview" style="background: #ffeb3b;"></div>
             </div>
         </div>
-
         <div class="control-group">
             <label>Зум: <span id="vZoom">1.0x</span></label>
             <input type="range" id="zoom" min="1" max="5" step="0.1" value="1">
         </div>
-
         <div class="control-group">
-            <label>Точность (Hue): <span id="vT">15</span></label>
+            <label>Точность: <span id="vT">15</span></label>
             <input type="range" id="threshold" min="2" max="50" value="15">
         </div>
-
         <div class="control-group">
-            <label>Мин. размер: <span id="v3">400</span></label>
-            <input type="range" id="minSize" min="50" max="3000" step="50" value="400">
+            <label>Размер рыбы: <span id="v3">800</span></label>
+            <input type="range" id="minSize" min="100" max="10000" step="100" value="800">
         </div>
     </div>
-    <div id="status">Запуск камеры...</div>
 
     <script>
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        const statusEl = document.getElementById('status');
         
         let targetHSL = { h: 54, s: 100, l: 50 };
-        let currentZoom = 1;
+        let zoomVal = 1.0;
+        let vWidth, vHeight; // Реальные размеры видеопотока
 
-        // Конвертация
         function rgbToHsl(r, g, b) {
             r /= 255; g /= 255; b /= 255;
             const max = Math.max(r, g, b), min = Math.min(r, g, b);
@@ -107,15 +101,13 @@
             return { h: h * 360, s: s * 100, l: l * 100 };
         }
 
-        // Выбор цвета (адаптировано под тач)
+        // Выбор цвета кликом
         const pickColor = (e) => {
             const rect = canvas.getBoundingClientRect();
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-            
-            const x = (clientX - rect.left) * (640 / rect.width);
-            const y = (clientY - rect.top) * (480 / rect.height);
-            
+            const x = (clientX - rect.left) * (1280 / rect.width);
+            const y = (clientY - rect.top) * (720 / rect.height);
             const p = ctx.getImageData(x, y, 1, 1).data;
             const hex = "#" + ((1 << 24) + (p[0] << 16) + (p[1] << 8) + p[2]).toString(16).slice(1);
             document.getElementById('colorPicker').value = hex;
@@ -126,51 +118,76 @@
         canvas.addEventListener('mousedown', pickColor);
         canvas.addEventListener('touchstart', (e) => { e.preventDefault(); pickColor(e); });
 
-        // Зум
         document.getElementById('zoom').addEventListener('input', (e) => {
-            currentZoom = parseFloat(e.target.value);
-            document.getElementById('vZoom').textContent = currentZoom.toFixed(1) + 'x';
-            canvas.style.transform = `scale(${currentZoom})`;
+            zoomVal = parseFloat(e.target.value);
+            document.getElementById('vZoom').textContent = zoomVal.toFixed(1) + 'x';
+            canvas.style.transform = `scale(${zoomVal})`;
         });
 
-        // Запуск камеры (Android/iOS)
         async function start() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "environment", width: 640, height: 480 }
+                    video: { facingMode: "environment", width: { ideal: 1280 } }
                 });
                 video.srcObject = stream;
-                statusEl.textContent = "✅ Камера готова. Используйте заднюю камеру.";
                 video.onloadedmetadata = () => {
+                    vWidth = video.videoWidth;
+                    vHeight = video.videoHeight;
                     video.play();
                     requestAnimationFrame(processFrame);
                 }
-            } catch (err) {
-                statusEl.textContent = "❌ Ошибка: " + err.message;
-            }
+            } catch (err) { alert("Ошибка камеры: " + err.message); }
         }
 
-        const STEP = 5;
-        const GW = 640 / STEP, GH = 480 / STEP;
-        const visited = new Uint8Array(GW * GH);
+        const STEP = 6;
+        const GW = 1280 / STEP, GH = 720 / STEP;
+        const visited = new Uint8Array(Math.ceil(GW) * Math.ceil(GH));
 
         function processFrame() {
-            ctx.drawImage(video, 0, 0, 640, 480);
-            const data = ctx.getImageData(0, 0, 640, 480).data;
-            const mask = new Uint8Array(GW * GH);
-            
+            // --- РАСЧЕТ ПРОПОРЦИЙ (Object-fit: Cover) ---
+            const canvasRatio = 1280 / 720;
+            const videoRatio = vWidth / vHeight;
+            let sx, sy, sw, sh;
+
+            if (videoRatio > canvasRatio) {
+                // Видео шире, чем экран — обрезаем бока
+                sw = vHeight * canvasRatio;
+                sh = vHeight;
+                sx = (vWidth - sw) / 2;
+                sy = 0;
+            } else {
+                // Видео выше, чем экран — обрезаем верх/низ
+                sw = vWidth;
+                sh = vWidth / canvasRatio;
+                sx = 0;
+                sy = (vHeight - sh) / 2;
+            }
+
+            // Отрисовка без искажений
+            ctx.drawImage(video, sx, sy, sw, sh, 0, 0, 1280, 720);
+
+            const data = ctx.getImageData(0, 0, 1280, 720).data;
+            const mask = new Uint8Array(Math.ceil(GW) * Math.ceil(GH));
             const tH = parseInt(document.getElementById('threshold').value);
             const mSize = parseInt(document.getElementById('minSize').value);
 
-            for (let y = 0; y < 480; y += STEP) {
-                for (let x = 0; x < 640; x += STEP) {
-                    const i = (y * 640 + x) * 4;
+            // Ограничение области обнаружения по ЗУМУ
+            const visibleW = 1280 / zoomVal;
+            const visibleH = 720 / zoomVal;
+            const startX = (1280 - visibleW) / 2;
+            const startY = (720 - visibleH) / 2;
+
+            for (let y = 0; y < 720; y += STEP) {
+                for (let x = 0; x < 1280; x += STEP) {
+                    if (x < startX || x > startX + visibleW || y < startY || y > startY + visibleH) continue;
+
+                    const i = (Math.floor(y) * 1280 + Math.floor(x)) * 4;
                     const hsl = rgbToHsl(data[i], data[i+1], data[i+2]);
                     let hDiff = Math.abs(hsl.h - targetHSL.h);
                     if (hDiff > 180) hDiff = 360 - hDiff;
 
-                    if (hDiff < tH && hsl.s > 20 && hsl.l > 15 && hsl.l < 85) {
-                        mask[Math.floor(y/STEP) * GW + Math.floor(x/STEP)] = 1;
+                    if (hDiff < tH && hsl.s > 15 && hsl.l > 10 && hsl.l < 90) {
+                        mask[Math.floor(y/STEP) * Math.ceil(GW) + Math.floor(x/STEP)] = 1;
                     }
                 }
             }
@@ -181,19 +198,18 @@
 
             for (let i = 0; i < mask.length; i++) {
                 if (mask[i] && !visited[i]) {
-                    let area = 0;
-                    let minX = i % GW, maxX = minX, minY = Math.floor(i / GW), maxY = minY;
+                    let area = 0, minX = i % Math.ceil(GW), maxX = minX, minY = Math.floor(i / Math.ceil(GW)), maxY = minY;
                     queue.push(i);
                     visited[i] = 1;
 
                     while(queue.length > 0) {
                         const curr = queue.shift();
                         area++;
-                        const cx = curr % GW, cy = Math.floor(curr / GW);
+                        const cx = curr % Math.ceil(GW), cy = Math.floor(curr / Math.ceil(GW));
                         if (cx < minX) minX = cx; if (cx > maxX) maxX = cx;
                         if (cy < minY) minY = cy; if (cy > maxY) maxY = cy;
 
-                        const neighbors = [curr-1, curr+1, curr-GW, curr+GW];
+                        const neighbors = [curr-1, curr+1, curr-Math.ceil(GW), curr+Math.ceil(GW)];
                         for(let n of neighbors) {
                             if (n >= 0 && n < mask.length && mask[n] && !visited[n]) {
                                 visited[n] = 1;
@@ -205,13 +221,13 @@
                     if (area * (STEP * STEP) >= mSize) {
                         count++;
                         ctx.strokeStyle = '#00e5ff';
-                        ctx.lineWidth = 2;
+                        ctx.lineWidth = 3;
                         ctx.strokeRect(minX*STEP, minY*STEP, (maxX-minX)*STEP, (maxY-minY)*STEP);
                     }
                 }
             }
 
-            document.getElementById('counter').textContent = `FISH: ${count}`;
+            document.getElementById('counter').textContent = `РЫБ В БАССЕЙНЕ: ${count}`;
             document.getElementById('vT').textContent = tH;
             document.getElementById('v3').textContent = mSize;
             requestAnimationFrame(processFrame);
